@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
+#include <memory>
 #include <string>
 
 #include "hostdevcommon/common_values.hpp"
@@ -42,45 +43,56 @@ class FreeList : public Algorithm {
    private:
     struct Block {
         Block(DeviceAddr address, DeviceAddr size) : address(address), size(size) {}
-        Block(DeviceAddr address, DeviceAddr size, boost::local_shared_ptr<Block> prev_block, boost::local_shared_ptr<Block> next_block, boost::local_shared_ptr<Block> prev_free, boost::local_shared_ptr<Block> next_free)
+        Block(DeviceAddr address, DeviceAddr size, Block* prev_block, Block* next_block, Block* prev_free, Block* next_free)
               : address(address), size(size), prev_block(prev_block), next_block(next_block), prev_free(prev_free), next_free(next_free) {}
         DeviceAddr address;
         DeviceAddr size;
-        boost::local_shared_ptr<Block> prev_block = nullptr;
-        boost::local_shared_ptr<Block> next_block = nullptr;
-        boost::local_shared_ptr<Block> prev_free = nullptr;
-        boost::local_shared_ptr<Block> next_free = nullptr;
+        Block* prev_block = nullptr;
+        Block* next_block = nullptr;
+        Block* prev_free = nullptr;
+        Block* next_free = nullptr;
     };
 
-    void dump_block(const boost::local_shared_ptr<Block> block, std::ofstream &out) const;
+    void dump_block(const Block* block, std::ofstream &out) const;
 
-    bool is_allocated(const boost::local_shared_ptr<Block> block) const;
+    bool is_allocated(const Block* block) const;
 
-    boost::local_shared_ptr<Block> search_best(DeviceAddr size_bytes, bool bottom_up);
+    Block* search_best(DeviceAddr size_bytes, bool bottom_up);
 
-    boost::local_shared_ptr<Block> search_first(DeviceAddr size_bytes, bool bottom_up);
+    Block* search_first(DeviceAddr size_bytes, bool bottom_up);
 
-    boost::local_shared_ptr<Block> search(DeviceAddr size_bytes, bool bottom_up);
+    Block* search(DeviceAddr size_bytes, bool bottom_up);
 
-    void allocate_entire_free_block(boost::local_shared_ptr<Block> free_block_to_allocate);
+    void allocate_entire_free_block(Block* free_block_to_allocate);
 
-    void update_left_aligned_allocated_block_connections(boost::local_shared_ptr<Block> free_block, boost::local_shared_ptr<Block> allocated_block);
+    void update_left_aligned_allocated_block_connections(Block* free_block, Block* allocated_block);
 
-    void update_right_aligned_allocated_block_connections(boost::local_shared_ptr<Block> free_block, boost::local_shared_ptr<Block> allocated_block);
+    void update_right_aligned_allocated_block_connections(Block* free_block, Block* allocated_block);
 
-    boost::local_shared_ptr<Block> allocate_slice_of_free_block(boost::local_shared_ptr<Block> free_block, DeviceAddr offset, DeviceAddr size_bytes);
+    Block* allocate_slice_of_free_block(Block* free_block, DeviceAddr offset, DeviceAddr size_bytes);
 
-    boost::local_shared_ptr<Block> find_block(DeviceAddr address);
+    Block* find_block(DeviceAddr address);
 
     void update_lowest_occupied_address();
 
     void update_lowest_occupied_address(DeviceAddr address);
 
     SearchPolicy search_policy_;
-    boost::local_shared_ptr<Block> block_head_;
-    boost::local_shared_ptr<Block> block_tail_;
-    boost::local_shared_ptr<Block> free_block_head_;
-    boost::local_shared_ptr<Block> free_block_tail_;
+    Block* block_head_;
+    Block* block_tail_;
+    Block* free_block_head_;
+    Block* free_block_tail_;
+    std::vector<std::unique_ptr<Block>> block_holder_;
+    Block* alloc_block(DeviceAddr address, DeviceAddr size, Block* prev_block, Block* next_block, Block* prev_free, Block* next_free)
+    {
+        block_holder_.push_back(std::make_unique<Block>(address, size, prev_block, next_block, prev_free, next_free));
+        return block_holder_.back().get();
+    }
+    Block* alloc_block(DeviceAddr address, DeviceAddr size)
+    {
+        block_holder_.push_back(std::make_unique<Block>(address, size));
+        return block_holder_.back().get();
+    }
 };
 
 }  // namespace allocator

@@ -22,14 +22,14 @@ FreeList::FreeList(DeviceAddr max_size_bytes, DeviceAddr offset_bytes, DeviceAdd
 
 void FreeList::init() {
     this->shrink_size_ = 0;
-    auto block = boost::make_local_shared<Block>(0, this->max_size_bytes_);
+    auto block = alloc_block(0, this->max_size_bytes_);
     this->block_head_ = block;
     this->block_tail_ = block;
     this->free_block_head_ = block;
     this->free_block_tail_ = block;
 }
 
-bool FreeList::is_allocated(const boost::local_shared_ptr<Block> block) const {
+bool FreeList::is_allocated(const Block* block) const {
     return block->prev_free == nullptr and block->next_free == nullptr and block != this->free_block_head_ and block != this->free_block_tail_;
 }
 
@@ -37,7 +37,7 @@ std::vector<std::pair<DeviceAddr, DeviceAddr>> FreeList::available_addresses(Dev
     DeviceAddr alloc_size = size_bytes < this->min_allocation_size_ ? this->min_allocation_size_ : size_bytes;
     alloc_size = this->align(alloc_size);
     std::vector<std::pair<DeviceAddr, DeviceAddr>> addresses;
-    boost::local_shared_ptr<FreeList::Block> curr_block = this->free_block_head_;
+    Block* curr_block = this->free_block_head_;
     while (curr_block != nullptr) {
         if (curr_block->size >= alloc_size) {
             DeviceAddr end_range = (curr_block->address + curr_block->size) - alloc_size;
@@ -48,9 +48,9 @@ std::vector<std::pair<DeviceAddr, DeviceAddr>> FreeList::available_addresses(Dev
     return addresses;
 }
 
-boost::local_shared_ptr<FreeList::Block> FreeList::search_best(DeviceAddr size_bytes, bool bottom_up) {
-    boost::local_shared_ptr<FreeList::Block> best_block = nullptr;
-    boost::local_shared_ptr<FreeList::Block> curr_block = bottom_up ? this->free_block_head_ : this->free_block_tail_;
+FreeList::Block* FreeList::search_best(DeviceAddr size_bytes, bool bottom_up) {
+    Block* best_block = nullptr;
+    Block* curr_block = bottom_up ? this->free_block_head_ : this->free_block_tail_;
     while (curr_block != nullptr) {
         if (curr_block->size == size_bytes) {
             best_block = curr_block;
@@ -66,9 +66,9 @@ boost::local_shared_ptr<FreeList::Block> FreeList::search_best(DeviceAddr size_b
     return best_block;
 }
 
-boost::local_shared_ptr<FreeList::Block> FreeList::search_first(DeviceAddr size_bytes, bool bottom_up) {
-    boost::local_shared_ptr<FreeList::Block> curr_block = bottom_up ? this->free_block_head_ : this->free_block_tail_;
-    boost::local_shared_ptr<FreeList::Block> first_fit_block = nullptr;
+FreeList::Block* FreeList::search_first(DeviceAddr size_bytes, bool bottom_up) {
+    Block* curr_block = bottom_up ? this->free_block_head_ : this->free_block_tail_;
+    Block* first_fit_block = nullptr;
     while (curr_block != nullptr) {
         if (curr_block->size >= size_bytes) {
             first_fit_block = curr_block;
@@ -80,7 +80,7 @@ boost::local_shared_ptr<FreeList::Block> FreeList::search_first(DeviceAddr size_
     return first_fit_block;
 }
 
-boost::local_shared_ptr<FreeList::Block> FreeList::search(DeviceAddr size_bytes, bool bottom_up) {
+FreeList::Block* FreeList::search(DeviceAddr size_bytes, bool bottom_up) {
     switch (this->search_policy_) {
         case FreeList::SearchPolicy::BEST:
             return search_best(size_bytes, bottom_up);
@@ -94,7 +94,7 @@ boost::local_shared_ptr<FreeList::Block> FreeList::search(DeviceAddr size_bytes,
     return nullptr;
 }
 
-void FreeList::allocate_entire_free_block(boost::local_shared_ptr<Block> free_block_to_allocate) {
+void FreeList::allocate_entire_free_block(Block* free_block_to_allocate) {
     TT_ASSERT(not is_allocated(free_block_to_allocate));
     if (free_block_to_allocate->prev_free != nullptr) {
         free_block_to_allocate->prev_free->next_free = free_block_to_allocate->next_free;
@@ -122,7 +122,7 @@ void FreeList::allocate_entire_free_block(boost::local_shared_ptr<Block> free_bl
 
 // free_block range: [a, b)
 // allocated_block range: [a, c), where c < b
-void FreeList::update_left_aligned_allocated_block_connections(boost::local_shared_ptr<Block> free_block, boost::local_shared_ptr<Block> allocated_block) {
+void FreeList::update_left_aligned_allocated_block_connections(Block* free_block, Block* allocated_block) {
     allocated_block->prev_block = free_block->prev_block;
     allocated_block->next_block = free_block;
     if (free_block->prev_block != nullptr) {
@@ -139,7 +139,7 @@ void FreeList::update_left_aligned_allocated_block_connections(boost::local_shar
 
 // free_block range: [a, b)
 // allocated_block range: [c, b), where c > a
-void FreeList::update_right_aligned_allocated_block_connections(boost::local_shared_ptr<Block> free_block, boost::local_shared_ptr<Block> allocated_block) {
+void FreeList::update_right_aligned_allocated_block_connections(Block* free_block, Block* allocated_block) {
     allocated_block->prev_block = free_block;
     allocated_block->next_block = free_block->next_block;
     if (free_block->next_block != nullptr) {
@@ -154,7 +154,7 @@ void FreeList::update_right_aligned_allocated_block_connections(boost::local_sha
 }
 
 // Offset marks the start of the allocated block
-boost::local_shared_ptr<FreeList::Block> FreeList::allocate_slice_of_free_block(boost::local_shared_ptr<FreeList::Block> free_block, DeviceAddr offset, DeviceAddr size_bytes) {
+FreeList::Block* FreeList::allocate_slice_of_free_block(Block* free_block, DeviceAddr offset, DeviceAddr size_bytes) {
     TT_ASSERT(free_block->address + offset + size_bytes <= free_block->address + free_block->size);
 
     // Allocated slice spans the entire space of free_block
@@ -163,7 +163,7 @@ boost::local_shared_ptr<FreeList::Block> FreeList::allocate_slice_of_free_block(
         return free_block;
     }
 
-    auto allocated_block = boost::make_local_shared<FreeList::Block>(free_block->address + offset, size_bytes);
+    auto allocated_block = alloc_block(free_block->address + offset, size_bytes);
 
     // Allocated slice takes up a portion of free_block, three cases to consider:
     // 1. allocated_block is left aligned with free_block with free space remaining on the right
@@ -184,7 +184,7 @@ boost::local_shared_ptr<FreeList::Block> FreeList::allocate_slice_of_free_block(
         // Result:   | free_block_mod | allocated_block | next_free_block  |
         DeviceAddr next_free_block_addr = free_block->address + offset + size_bytes;
         DeviceAddr next_free_block_size = (free_block->address + free_block->size) - next_free_block_addr;
-        auto next_free_block = boost::make_local_shared<FreeList::Block>(
+        auto next_free_block = alloc_block(
             next_free_block_addr,
             next_free_block_size,
             allocated_block,
@@ -247,7 +247,7 @@ std::optional<DeviceAddr> FreeList::allocate(DeviceAddr size_bytes, bool bottom_
 std::optional<DeviceAddr> FreeList::allocate_at_address(DeviceAddr absolute_start_address, DeviceAddr size_bytes) {
     TT_ASSERT(absolute_start_address % this->alignment_ == 0, "Requested address {} should be {} B aligned", absolute_start_address, this->alignment_);
     auto start_address = absolute_start_address - this->offset_bytes_;
-    boost::local_shared_ptr<FreeList::Block> curr_block = this->free_block_head_;
+    Block* curr_block = this->free_block_head_;
     DeviceAddr alloc_size = size_bytes < this->min_allocation_size_ ? this->min_allocation_size_ : size_bytes;
     alloc_size = this->align(alloc_size);
     // Look for a free block of size at least size_bytes that encompasses start_address
@@ -272,9 +272,9 @@ std::optional<DeviceAddr> FreeList::allocate_at_address(DeviceAddr absolute_star
     return absolute_start_address;
 }
 
-boost::local_shared_ptr<FreeList::Block> FreeList::find_block(DeviceAddr address) {
-    boost::local_shared_ptr<Block> block = nullptr;
-    boost::local_shared_ptr<Block> curr_block = this->block_head_;
+FreeList::Block* FreeList::find_block(DeviceAddr address) {
+    Block* block = nullptr;
+    Block* curr_block = this->block_head_;
     while (curr_block != nullptr) {
         if (curr_block->address == address) {
             return curr_block;
@@ -285,7 +285,7 @@ boost::local_shared_ptr<FreeList::Block> FreeList::find_block(DeviceAddr address
 }
 
 void FreeList::update_lowest_occupied_address() {
-    boost::local_shared_ptr<Block> block = this->block_head_;
+    Block* block = this->block_head_;
     while (block != nullptr) {
         if (this->is_allocated(block)) {
             break;
@@ -301,7 +301,7 @@ void FreeList::update_lowest_occupied_address() {
 
 void FreeList::deallocate(DeviceAddr absolute_address) {
     DeviceAddr address = absolute_address - this->offset_bytes_;
-    boost::local_shared_ptr<Block> block_to_free = find_block(address);
+    Block* block_to_free = find_block(address);
     if (block_to_free == nullptr or not this->is_allocated(block_to_free)) {
         return;
     }
@@ -388,7 +388,7 @@ Statistics FreeList::get_statistics() const {
         .largest_free_block_bytes = 0
     };
 
-    boost::local_shared_ptr<Block> curr_block = this->block_head_;
+    Block* curr_block = this->block_head_;
     while (curr_block != nullptr) {
         if (this->is_allocated(curr_block)) {
             stats.total_allocated_bytes += curr_block->size;
@@ -408,7 +408,7 @@ Statistics FreeList::get_statistics() const {
     return stats;
 }
 
-void FreeList::dump_block(const boost::local_shared_ptr<Block> block, std::ofstream &out) const {
+void FreeList::dump_block(const Block* block, std::ofstream &out) const {
     auto alloc_status = this->is_allocated(block) ? "Y" : "N";
     out << ",,," << (block->address + this->offset_bytes_)
         << "," << (block->size)
@@ -417,7 +417,7 @@ void FreeList::dump_block(const boost::local_shared_ptr<Block> block, std::ofstr
 
 void FreeList::dump_blocks(std::ofstream &out) const {
     out << ",,Blocks:,Address (B),Size (B),Allocated (Y/N)\n";
-    boost::local_shared_ptr<Block> curr_block = this->block_head_;
+    Block* curr_block = this->block_head_;
     while (curr_block != nullptr) {
         this->dump_block(curr_block, out);
         curr_block = curr_block->next_block;
@@ -479,14 +479,14 @@ void FreeList::reset_size() {
     // Case 1: No free blocks exist
     // We create a new free block which will be the free head and tail, and will also be our new block head
     if (this->free_block_head_ == nullptr) {
-        this->free_block_head_ = boost::make_local_shared<FreeList::Block>(0, this->shrink_size_);
+        this->free_block_head_ = alloc_block(0, this->shrink_size_);
         this->free_block_head_->next_block = this->block_head_;
         this->free_block_tail_ = this->free_block_head_;
         this->block_head_ = this->free_block_head_;
     }
     // Case 2: Free blocks exist but not at the start
     else if (this->free_block_head_->address != this->shrink_size_) {
-        auto new_free_block = boost::make_local_shared<FreeList::Block>(0, this->shrink_size_);
+        auto new_free_block = alloc_block(0, this->shrink_size_);
         new_free_block->next_block = this->block_head_;
         new_free_block->next_free = this->free_block_head_;
         this->free_block_head_->prev_free = new_free_block;
