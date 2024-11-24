@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-#include <memory>
-#include <string>
 
 #include "hostdevcommon/common_values.hpp"
 #include "tt_metal/impl/allocator/algorithms/allocator_algorithm.hpp"
