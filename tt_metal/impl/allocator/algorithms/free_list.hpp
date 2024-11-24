@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
+// SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
@@ -20,6 +20,8 @@ class FreeList : public Algorithm {
     };
 
     FreeList(DeviceAddr max_size_bytes, DeviceAddr offset_bytes, DeviceAddr min_allocation_size, DeviceAddr alignment, SearchPolicy search_policy);
+    ~FreeList();
+
     void init();
 
     std::vector<std::pair<DeviceAddr, DeviceAddr>> available_addresses(DeviceAddr size_bytes) const;
@@ -82,17 +84,8 @@ class FreeList : public Algorithm {
     Block* block_tail_;
     Block* free_block_head_;
     Block* free_block_tail_;
-    std::vector<std::unique_ptr<Block>> block_holder_;
-    Block* alloc_block(DeviceAddr address, DeviceAddr size, Block* prev_block, Block* next_block, Block* prev_free, Block* next_free)
-    {
-        block_holder_.push_back(std::make_unique<Block>(address, size, prev_block, next_block, prev_free, next_free));
-        return block_holder_.back().get();
-    }
-    Block* alloc_block(DeviceAddr address, DeviceAddr size)
-    {
-        block_holder_.push_back(std::make_unique<Block>(address, size));
-        return block_holder_.back().get();
-    }
+
+    void deallocate_all_blocks();
 };
 
 }  // namespace allocator

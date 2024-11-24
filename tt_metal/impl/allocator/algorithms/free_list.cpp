@@ -16,17 +16,35 @@ namespace tt_metal {
 namespace allocator {
 
 FreeList::FreeList(DeviceAddr max_size_bytes, DeviceAddr offset_bytes, DeviceAddr min_allocation_size, DeviceAddr alignment, FreeList::SearchPolicy search_policy)
-    : search_policy_(search_policy), Algorithm(max_size_bytes, offset_bytes, min_allocation_size, alignment) {
+    : search_policy_(search_policy), Algorithm(max_size_bytes, offset_bytes, min_allocation_size, alignment), block_head_(nullptr), block_tail_(nullptr), free_block_head_(nullptr), free_block_tail_(nullptr) {
     this->init();
 }
 
+FreeList::~FreeList() {
+    deallocate_all_blocks();
+}
+
 void FreeList::init() {
+    deallocate_all_blocks();
     this->shrink_size_ = 0;
-    auto block = alloc_block(0, this->max_size_bytes_);
+    auto block = new Block(0, this->max_size_bytes_);
     this->block_head_ = block;
     this->block_tail_ = block;
     this->free_block_head_ = block;
     this->free_block_tail_ = block;
+}
+
+void FreeList::deallocate_all_blocks() {
+    Block* curr_block = block_head_;
+    while (curr_block != nullptr) {
+        Block* next_block = curr_block->next_block;
+        delete curr_block;
+        curr_block = next_block;
+    }
+    block_head_ = nullptr;
+    block_tail_ = nullptr;
+    free_block_head_ = nullptr;
+    free_block_tail_ = nullptr;
 }
 
 bool FreeList::is_allocated(const Block* block) const {
@@ -163,7 +181,7 @@ FreeList::Block* FreeList::allocate_slice_of_free_block(Block* free_block, Devic
         return free_block;
     }
 
-    auto allocated_block = alloc_block(free_block->address + offset, size_bytes);
+    auto allocated_block = new Block(free_block->address + offset, size_bytes);
 
     // Allocated slice takes up a portion of free_block, three cases to consider:
     // 1. allocated_block is left aligned with free_block with free space remaining on the right
@@ -184,7 +202,7 @@ FreeList::Block* FreeList::allocate_slice_of_free_block(Block* free_block, Devic
         // Result:   | free_block_mod | allocated_block | next_free_block  |
         DeviceAddr next_free_block_addr = free_block->address + offset + size_bytes;
         DeviceAddr next_free_block_size = (free_block->address + free_block->size) - next_free_block_addr;
-        auto next_free_block = alloc_block(
+        auto next_free_block = new Block(
             next_free_block_addr,
             next_free_block_size,
             allocated_block,
@@ -317,6 +335,7 @@ void FreeList::deallocate(DeviceAddr absolute_address) {
             block_to_free->next_block->prev_block = prev;
         }
         prev->size += block_to_free->size;
+        delete block_to_free;
         block_to_free = prev;
         merged_prev = true;
     }
@@ -343,6 +362,7 @@ void FreeList::deallocate(DeviceAddr absolute_address) {
             }
         }
         block_to_free->size += next->size;
+        delete next;
         merged_next = true;
     }
 
@@ -479,14 +499,14 @@ void FreeList::reset_size() {
     // Case 1: No free blocks exist
     // We create a new free block which will be the free head and tail, and will also be our new block head
     if (this->free_block_head_ == nullptr) {
-        this->free_block_head_ = alloc_block(0, this->shrink_size_);
+        this->free_block_head_ = new Block(0, this->shrink_size_);
         this->free_block_head_->next_block = this->block_head_;
         this->free_block_tail_ = this->free_block_head_;
         this->block_head_ = this->free_block_head_;
     }
     // Case 2: Free blocks exist but not at the start
     else if (this->free_block_head_->address != this->shrink_size_) {
-        auto new_free_block = alloc_block(0, this->shrink_size_);
+        auto new_free_block = new Block(0, this->shrink_size_);
         new_free_block->next_block = this->block_head_;
         new_free_block->next_free = this->free_block_head_;
         this->free_block_head_->prev_free = new_free_block;
